@@ -146,7 +146,6 @@ void functionLimiter();
 void functionAutoLookback();
 void functionAutoGear1();
 void functionHillGravity();
-
 void UpdatePause();
 
 void setVehicleConfig(Vehicle vehicle) {
@@ -1399,7 +1398,9 @@ void functionAShift() {
         if (subAutoShiftSequential())
             return;
     }
-
+    if (g_gearStates.FakeNeutral) {//This fixes the bug that would have the automatic transmission shift back into gear upon deceleration in Neutral.
+        return;
+    }
     int currGear = g_vehData.mGearCurr;
     if (currGear == 0)
         return;
@@ -2534,14 +2535,13 @@ void functionAutoGear1() {
         shiftTo(1, false);
     }
 }
-
 void functionHillGravity() {
-    // TODO: Needs improvement/proper fix
-    if (g_controls.HandbrakeVal < 0.1f && 
-        g_controls.BrakeVal < 0.1f &&
-        ENTITY::GET_ENTITY_SPEED(g_playerVehicle) < 2.0f &&
-        VEHICLE::IS_VEHICLE_ON_ALL_WHEELS(g_playerVehicle)) {
-        float pitch = ENTITY::GET_ENTITY_PITCH(g_playerVehicle);;
+    if (g_controls.HandbrakeVal < 0.1f && //handbrake not held
+        g_controls.BrakeVal < 0.1f && // brakes not held
+        !g_controls.ButtonIn(CarControls::WheelControlType::APark) && //car is not in auto shifter park
+        ENTITY::GET_ENTITY_SPEED(g_playerVehicle) < 34.2857143f && //Roll up to 100 k an hour
+        VEHICLE::IS_VEHICLE_ON_ALL_WHEELS(g_playerVehicle)) { //car is on ground
+        float pitch = ENTITY::GET_ENTITY_PITCH(g_playerVehicle);
 
         float clutchNeutral;
         if (g_gearStates.FakeNeutral)
@@ -2551,13 +2551,27 @@ void functionHillGravity() {
         else
             clutchNeutral = g_controls.ClutchVal;
 
-        if (pitch < 0 || clutchNeutral) {
+        if (pitch < 0.0f || clutchNeutral) {
             ENTITY::APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS(
-                g_playerVehicle, 1, { 0.0f, -1 * (pitch / 150.0f) * 1.1f * clutchNeutral, 0.0f }, true, true, true, true);
+                g_playerVehicle, 1, { 0.0f, -1.5f * ((pitch + 10.0f)/200.0f) * clutchNeutral, 0.0f }, true, true, true, true);
         }
-        if (pitch > 10.0f || clutchNeutral)
+        if (pitch > 0.0f || clutchNeutral) {
             ENTITY::APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS(
-                g_playerVehicle, 1, { 0.0f, -1 * (pitch / 90.0f) * 0.35f * clutchNeutral, 0.0f }, true, true, true, true);
+                g_playerVehicle, 1, { 0.0f, -1.5f * ((pitch - 10.0f) / 200.0f * clutchNeutral), 0.0f }, true, true, true, true);
+        }
+        //VEHICLE CRAWL FUNCTIONALITY
+
+        if (VEHICLE::GET_IS_VEHICLE_ENGINE_RUNNING(g_playerVehicle)){// make sure engine is running 
+            if (ENTITY::GET_ENTITY_SPEED(g_playerVehicle) < 1.8f) {// limited to 6.3k an hour. km/h = speed float x 3.5
+                if (!clutchNeutral && g_vehData.mGearCurr > 0) {// if car is in gear 
+                    ENTITY::APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS(g_playerVehicle, 1, { 0.0f, 0.03f / (g_vehData.mGearCurr * 0.3f), 0.0f }, true, true, true, true);//make car go forwards, but less so in higher gears
+
+                }
+                else if (!clutchNeutral && g_vehData.mGearCurr == 0) {// car is in reverse
+                    ENTITY::APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS(g_playerVehicle, 1, { 0.0f, -0.08f, 0.0f }, true, true, true, true);//make car go backwards
+                }
+            }
+        }
     }
 }
 
